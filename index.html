@@ -201,21 +201,115 @@ box.classList.add("show");empty.style.display="none";state.searched++;touchStrea
 async function searchWord(){
 let word=document.getElementById("dictInput").value.trim().toLowerCase();
 if(!word)return;
+
 let box=document.getElementById("dictResult"),empty=document.getElementById("dictEmpty");
-box.classList.remove("show");empty.style.display="block";empty.textContent="Searching...";
-if(localDictionary[word]){renderLocalWord(word,localDictionary[word]);return;}
-const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),6000);
+box.classList.remove("show");
+empty.style.display="block";
+empty.textContent="Searching...";
+
+if(localDictionary[word]){
+  renderLocalWord(word,localDictionary[word]);
+  return;
+}
+
+const controller=new AbortController();
+const timer=setTimeout(()=>controller.abort(),9000);
+
 try{
-let r=await fetch("https://api.dictionaryapi.dev/api/v2/entries/en/"+encodeURIComponent(word),{signal:controller.signal});
-if(!r.ok)throw new Error();
-let data=await r.json(),e=data[0];
-let phon=e.phonetic||(e.phonetics||[]).find(x=>x.text)?.text||"";
-let audio=(e.phonetics||[]).find(x=>x.audio)?.audio||"";
-let blocks=(e.meanings||[]).slice(0,6).map(m=>`<div class="meaningblock"><h3>${escapeHtml(m.partOfSpeech||"Meaning")}</h3><ol>${(m.definitions||[]).slice(0,4).map(d=>`<li>${escapeHtml(d.definition)}${d.example?`<div class="example">“${escapeHtml(d.example)}”</div>`:""}</li>`).join("")}</ol>${m.synonyms?.length?`<div class="chips">${m.synonyms.slice(0,10).map(s=>`<span class="chip">${escapeHtml(s)}</span>`).join("")}</div>`:""}</div>`).join("");
-box.innerHTML=`<div class="resulttop"><div><h2>${escapeHtml(e.word)}</h2><div class="phonetic">${escapeHtml(phon||"Pronunciation unavailable")}</div></div>${audio?`<button class="audio" onclick="new Audio('${audio}').play()">🔊 Listen</button>`:""}</div>${blocks}<div class="notice">Live dictionary result</div>`;
-box.classList.add("show");empty.style.display="none";state.searched++;touchStreak();save();
-}catch(err){box.classList.remove("show");empty.style.display="block";empty.innerHTML=`<strong>We couldn't find this word right now.</strong><br><span style="display:block;margin-top:6px">Try one of Lexora's featured words, or check your spelling.</span>`;}
-finally{clearTimeout(timer);}}
+  // Open Dictionary contains 260k+ English entries sourced from Wiktionary.
+  // Each request loads only the small JSON file for the word's first two letters.
+  const first=word.slice(0,1);
+  const firstTwo=word.length>1?word.slice(0,2):word;
+  const url=`https://raw.githubusercontent.com/mhollingshead/open-dictionary/main/api/${encodeURIComponent(first)}/${encodeURIComponent(firstTwo)}.json`;
+
+  const r=await fetch(url,{signal:controller.signal});
+  if(!r.ok)throw new Error("Dictionary file unavailable");
+
+  const group=await r.json();
+  const e=group[word];
+  if(!e)throw new Error("Word not found");
+
+  let phon="";
+  let parts=[];
+  let examples=[];
+  let seen=new Set();
+
+  (e.etymologies||[]).forEach(et=>{
+    (et.partsOfSpeech||[]).forEach(p=>{
+      const pos=p.partOfSpeech||"Meaning";
+      const senses=(p.senses||[]).filter(s=>s.sense).slice(0,5);
+      if(!senses.length)return;
+
+      let key=pos+"|"+senses.map(s=>s.sense).join("|");
+      if(seen.has(key))return;
+      seen.add(key);
+
+      parts.push({pos,senses});
+
+      senses.forEach(s=>{
+        if(!examples.length && s.examples && s.examples.length){
+          examples.push(s.examples[0]);
+        }
+      });
+    });
+  });
+
+  if(!parts.length)throw new Error("No usable definition");
+
+  // The Open Dictionary source does not consistently expose phonetics,
+  // so browser speech is used by the Listen button.
+  let phonText="Pronunciation available with Listen";
+
+  let blocks=parts.slice(0,6).map(m=>`
+    <div class="meaningblock">
+      <h3>${escapeHtml(m.pos)}</h3>
+      <ol>
+        ${m.senses.map(s=>`
+          <li>
+            ${escapeHtml(String(s.sense).replace(/<[^>]*>/g,""))}
+            ${s.examples&&s.examples[0]?`<div class="example">“${escapeHtml(String(s.examples[0]).replace(/<[^>]*>/g,""))}”</div>`:""}
+          </li>`).join("")}
+      </ol>
+    </div>`).join("");
+
+  let listen=`<button class="audio" onclick='speakWord(${JSON.stringify(word)})'>🔊 Listen</button>`;
+
+  box.innerHTML=`
+    <div class="resulttop">
+      <div>
+        <h2>${escapeHtml(e.word||word)}</h2>
+        <div class="phonetic">${escapeHtml(phonText)}</div>
+      </div>
+      ${listen}
+    </div>
+    ${blocks}
+    ${examples.length?`<div class="notice">Example included from Open Dictionary</div>`:""}
+    <div class="notice">Dictionary data: Wiktionary via Open Dictionary</div>`;
+
+  box.classList.add("show");
+  empty.style.display="none";
+  state.searched++;
+  touchStreak();
+  save();
+
+}catch(err){
+  // Keep the original dictionary API as a secondary fallback.
+  try{
+    let r=await fetch("https://api.dictionaryapi.dev/api/v2/entries/en/"+encodeURIComponent(word),{signal:controller.signal});
+    if(!r.ok)throw new Error();
+    let data=await r.json(),e=data[0];
+    let phon=e.phonetic||(e.phonetics||[]).find(x=>x.text)?.text||"";
+    let blocks=(e.meanings||[]).slice(0,6).map(m=>`<div class="meaningblock"><h3>${escapeHtml(m.partOfSpeech||"Meaning")}</h3><ol>${(m.definitions||[]).slice(0,4).map(d=>`<li>${escapeHtml(d.definition)}${d.example?`<div class="example">“${escapeHtml(d.example)}”</div>`:""}</li>`).join("")}</ol>${m.synonyms?.length?`<div class="chips">${m.synonyms.slice(0,10).map(s=>`<span class="chip">${escapeHtml(s)}</span>`).join("")}</div>`:""}</div>`).join("");
+    box.innerHTML=`<div class="resulttop"><div><h2>${escapeHtml(e.word)}</h2><div class="phonetic">${escapeHtml(phon||"Pronunciation unavailable")}</div></div><button class="audio" onclick='speakWord(${JSON.stringify(word)})'>🔊 Listen</button></div>${blocks}<div class="notice">Live dictionary result</div>`;
+    box.classList.add("show");empty.style.display="none";state.searched++;touchStreak();save();
+  }catch(fallbackErr){
+    box.classList.remove("show");
+    empty.style.display="block";
+    empty.innerHTML=`<strong>We couldn't find this word right now.</strong><br><span style="display:block;margin-top:6px">Try another English word or check your spelling.</span>`;
+  }
+}finally{
+  clearTimeout(timer);
+}}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function touchStreak(){let today=new Date().toISOString().slice(0,10);if(state.lastDay!==today){let prev=new Date(Date.now()-86400000).toISOString().slice(0,10);state.streak=state.lastDay===prev?state.streak+1:1;state.lastDay=today}}
 
@@ -250,5 +344,5 @@ function flipCard(){flipped=!flipped;renderCard()}function nextCard(){cardIndex=
 function resetProgress(){if(confirm("Reset your Lexora progress?")){state={correct:0,answered:0,searched:0,streak:0,lastDay:""};save()}}
 renderFeatured();updateProgress();renderCard();showView("home");
 </script>
-</body>
+<div style="text-align:center;font-size:12px;opacity:.65;padding:24px 16px">Dictionary data: Wiktionary via Open Dictionary</div></body>
 </html>
