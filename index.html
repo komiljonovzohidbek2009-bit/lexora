@@ -153,26 +153,45 @@ document.getElementById("featured").innerHTML=featured.map(w=>`<div class="wordc
 }
 function quickWord(w){showView("dictionary");document.getElementById("dictInput").value=w;searchWord()}
 function searchFromHero(){let w=document.getElementById("heroSearch").value.trim();if(w){showView("dictionary");document.getElementById("dictInput").value=w;searchWord()}}
+const localDictionary={
+achieve:{pos:"verb",phon:"/əˈtʃiːv/",meaning:"to successfully reach a goal",example:"She worked hard to achieve her goal.",synonyms:["accomplish","attain","reach"]},
+benefit:{pos:"noun / verb",phon:"/ˈbenɪfɪt/",meaning:"an advantage or helpful result; to gain an advantage",example:"Reading daily can benefit your vocabulary.",synonyms:["advantage","help","gain"]},
+improve:{pos:"verb",phon:"/ɪmˈpruːv/",meaning:"to make or become better",example:"Practice can improve your English.",synonyms:["enhance","develop","better"]},
+avoid:{pos:"verb",phon:"/əˈvɔɪd/",meaning:"to stay away from something or prevent something",example:"Try to avoid unnecessary mistakes.",synonyms:["evade","prevent","escape"]},
+support:{pos:"verb / noun",phon:"/səˈpɔːrt/",meaning:"to help, encourage, or give assistance",example:"Good teachers support their students.",synonyms:["help","assist","encourage"]},
+increase:{pos:"verb / noun",phon:"/ɪnˈkriːs/",meaning:"to become or make greater in amount or number",example:"Regular practice can increase confidence.",synonyms:["grow","raise","expand"]},
+curious:{pos:"adjective",phon:"/ˈkjʊəriəs/",meaning:"wanting to know or learn something",example:"She was curious about the new topic.",synonyms:["inquisitive","interested","questioning"]},
+confident:{pos:"adjective",phon:"/ˈkɒnfɪdənt/",meaning:"feeling sure about your abilities or decisions",example:"He felt confident before the test.",synonyms:["assured","certain","self-assured"]},
+require:{pos:"verb",phon:"/rɪˈkwaɪər/",meaning:"to need something or make something necessary",example:"This task may require patience.",synonyms:["need","demand","involve"]},
+develop:{pos:"verb",phon:"/dɪˈveləp/",meaning:"to grow, change, or become more advanced",example:"You can develop strong vocabulary over time.",synonyms:["grow","build","advance"]},
+accomplish:{pos:"verb",phon:"/əˈkʌmplɪʃ/",meaning:"to successfully complete or achieve something",example:"She accomplished her goal through hard work.",synonyms:["achieve","complete","attain"]},
+enhance:{pos:"verb",phon:"/ɪnˈhɑːns/",meaning:"to improve something or make it better",example:"Reading can enhance your vocabulary.",synonyms:["improve","boost","strengthen"]},
+advantage:{pos:"noun",phon:"/ədˈvɑːntɪdʒ/",meaning:"something that helps you to be more successful",example:"Knowing English can be an advantage.",synonyms:["benefit","gain","asset"]}
+};
+function renderLocalWord(word,data){
+let box=document.getElementById("dictResult"),empty=document.getElementById("dictEmpty");
+let chips=(data.synonyms||[]).map(s=>`<span class="chip">${escapeHtml(s)}</span>`).join("");
+box.innerHTML=`<div class="resulttop"><div><h2>${escapeHtml(word)}</h2><div class="phonetic">${escapeHtml(data.phon||"Pronunciation unavailable")}</div></div></div><div class="meaningblock"><h3>${escapeHtml(data.pos||"Meaning")}</h3><ol><li>${escapeHtml(data.meaning)}<div class="example">“${escapeHtml(data.example)}”</div></li></ol>${chips?`<div class="chips">${chips}</div>`:""}</div><div class="notice">Lexora dictionary result</div>`;
+box.classList.add("show");empty.style.display="none";state.searched++;touchStreak();save();
+}
 async function searchWord(){
 let word=document.getElementById("dictInput").value.trim().toLowerCase();
 if(!word)return;
 let box=document.getElementById("dictResult"),empty=document.getElementById("dictEmpty");
 box.classList.remove("show");empty.style.display="block";empty.textContent="Searching...";
-const controller=new AbortController();
-const timer=setTimeout(()=>controller.abort(),6000);
+if(localDictionary[word]){renderLocalWord(word,localDictionary[word]);return;}
+const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),6000);
 try{
 let r=await fetch("https://api.dictionaryapi.dev/api/v2/entries/en/"+encodeURIComponent(word),{signal:controller.signal});
 if(!r.ok)throw new Error();
-let data=await r.json();let e=data[0];
+let data=await r.json(),e=data[0];
 let phon=e.phonetic||(e.phonetics||[]).find(x=>x.text)?.text||"";
 let audio=(e.phonetics||[]).find(x=>x.audio)?.audio||"";
 let blocks=(e.meanings||[]).slice(0,6).map(m=>`<div class="meaningblock"><h3>${escapeHtml(m.partOfSpeech||"Meaning")}</h3><ol>${(m.definitions||[]).slice(0,4).map(d=>`<li>${escapeHtml(d.definition)}${d.example?`<div class="example">“${escapeHtml(d.example)}”</div>`:""}</li>`).join("")}</ol>${m.synonyms?.length?`<div class="chips">${m.synonyms.slice(0,10).map(s=>`<span class="chip">${escapeHtml(s)}</span>`).join("")}</div>`:""}</div>`).join("");
-box.innerHTML=`<div class="resulttop"><div><h2>${escapeHtml(e.word)}</h2><div class="phonetic">${escapeHtml(phon||"Pronunciation unavailable")}</div></div>${audio?`<button class="audio" onclick="new Audio('${audio}').play()">🔊 Listen</button>`:""}</div>${blocks}<div class="notice">Lexora uses an open dictionary service for live definitions. Results may vary by word and service availability.</div>`;
+box.innerHTML=`<div class="resulttop"><div><h2>${escapeHtml(e.word)}</h2><div class="phonetic">${escapeHtml(phon||"Pronunciation unavailable")}</div></div>${audio?`<button class="audio" onclick="new Audio('${audio}').play()">🔊 Listen</button>`:""}</div>${blocks}<div class="notice">Live dictionary result</div>`;
 box.classList.add("show");empty.style.display="none";state.searched++;touchStreak();save();
-}catch(err){
-box.classList.remove("show");empty.style.display="block";
-empty.innerHTML=`<strong>We couldn't load the live dictionary.</strong><br><span style="display:block;margin-top:6px">Please check your internet connection and try again.</span><button class="primary" style="margin-top:14px" onclick="searchWord()">Try again</button>`;
-}finally{clearTimeout(timer);}}
+}catch(err){box.classList.remove("show");empty.style.display="block";empty.innerHTML=`<strong>We couldn't find this word right now.</strong><br><span style="display:block;margin-top:6px">Try one of Lexora's featured words, or check your spelling.</span>`;}
+finally{clearTimeout(timer);}}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function touchStreak(){let today=new Date().toISOString().slice(0,10);if(state.lastDay!==today){let prev=new Date(Date.now()-86400000).toISOString().slice(0,10);state.streak=state.lastDay===prev?state.streak+1:1;state.lastDay=today}}
 
