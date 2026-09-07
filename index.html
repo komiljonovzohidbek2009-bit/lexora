@@ -168,13 +168,33 @@ accomplish:{pos:"verb",phon:"/əˈkʌmplɪʃ/",uzbek:"amalga oshirmoq, bajarmoq"
 enhance:{pos:"verb",phon:"/ɪnˈhɑːns/",uzbek:"yaxshilamoq, kuchaytirmoq",meaning:"to improve something or make it better",example:"Reading can enhance your vocabulary.",synonyms:["improve","boost","strengthen"]},
 advantage:{pos:"noun",phon:"/ədˈvɑːntɪdʒ/",uzbek:"afzallik, ustunlik",meaning:"something that helps you to be more successful",example:"Knowing English can be an advantage.",synonyms:["benefit","gain","asset"]}
 };
+let lexoraVoices=[];
+function loadLexoraVoices(){
+if("speechSynthesis" in window){lexoraVoices=window.speechSynthesis.getVoices();}
+}
+loadLexoraVoices();
+if("speechSynthesis" in window){window.speechSynthesis.onvoiceschanged=loadLexoraVoices;}
 function speakWord(word){
-if("speechSynthesis" in window){window.speechSynthesis.cancel();let u=new SpeechSynthesisUtterance(word);u.lang="en-US";u.rate=.85;window.speechSynthesis.speak(u);}
+if(!("speechSynthesis" in window)){alert("Audio is not supported by this browser.");return;}
+const synth=window.speechSynthesis;
+synth.cancel();
+const speak=()=>{
+const voices=synth.getVoices();
+const voice=voices.find(v=>v.lang==="en-US")||voices.find(v=>v.lang.startsWith("en-"))||voices.find(v=>v.lang==="en")||null;
+const u=new SpeechSynthesisUtterance(word);
+u.lang=voice?voice.lang:"en-US";
+if(voice)u.voice=voice;
+u.rate=.8;
+u.pitch=1;
+u.volume=1;
+synth.speak(u);
+};
+if(synth.getVoices().length){speak();}else{setTimeout(speak,500);}
 }
 function renderLocalWord(word,data){
 let box=document.getElementById("dictResult"),empty=document.getElementById("dictEmpty");
 let chips=(data.synonyms||[]).map(s=>`<span class="chip">${escapeHtml(s)}</span>`).join("");
-let listen=`<button class="audio" onclick="speakWord(${JSON.stringify(word)})">🔊 Listen</button>`;
+let listen=`<button class="audio" onclick='speakWord(${JSON.stringify(word)})'>🔊 Listen</button>`;
 box.innerHTML=`<div class="resulttop"><div><h2>${escapeHtml(word)}</h2><div class="phonetic">${escapeHtml(data.phon||"Pronunciation unavailable")}</div></div>${listen}</div><div class="meaningblock"><h3>${escapeHtml(data.pos||"Meaning")}</h3><div class="uzbek"><strong>🇺🇿 Uzbek meaning:</strong> ${escapeHtml(data.uzbek||"Tarjimasi mavjud emas")}</div><ol><li>${escapeHtml(data.meaning)}<div class="example">“${escapeHtml(data.example)}”</div></li></ol>${chips?`<div class="chips">${chips}</div>`:""}</div><div class="notice">Lexora dictionary result</div>`;
 box.classList.add("show");empty.style.display="none";state.searched++;touchStreak();save();
 }
