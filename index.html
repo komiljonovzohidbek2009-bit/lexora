@@ -157,9 +157,11 @@ async function searchWord(){
 let word=document.getElementById("dictInput").value.trim().toLowerCase();
 if(!word)return;
 let box=document.getElementById("dictResult"),empty=document.getElementById("dictEmpty");
-box.classList.remove("show");empty.textContent="Searching...";
+box.classList.remove("show");empty.style.display="block";empty.textContent="Searching...";
+const controller=new AbortController();
+const timer=setTimeout(()=>controller.abort(),6000);
 try{
-let r=await fetch("https://api.dictionaryapi.dev/api/v2/entries/en/"+encodeURIComponent(word));
+let r=await fetch("https://api.dictionaryapi.dev/api/v2/entries/en/"+encodeURIComponent(word),{signal:controller.signal});
 if(!r.ok)throw new Error();
 let data=await r.json();let e=data[0];
 let phon=e.phonetic||(e.phonetics||[]).find(x=>x.text)?.text||"";
@@ -167,7 +169,10 @@ let audio=(e.phonetics||[]).find(x=>x.audio)?.audio||"";
 let blocks=(e.meanings||[]).slice(0,6).map(m=>`<div class="meaningblock"><h3>${escapeHtml(m.partOfSpeech||"Meaning")}</h3><ol>${(m.definitions||[]).slice(0,4).map(d=>`<li>${escapeHtml(d.definition)}${d.example?`<div class="example">“${escapeHtml(d.example)}”</div>`:""}</li>`).join("")}</ol>${m.synonyms?.length?`<div class="chips">${m.synonyms.slice(0,10).map(s=>`<span class="chip">${escapeHtml(s)}</span>`).join("")}</div>`:""}</div>`).join("");
 box.innerHTML=`<div class="resulttop"><div><h2>${escapeHtml(e.word)}</h2><div class="phonetic">${escapeHtml(phon||"Pronunciation unavailable")}</div></div>${audio?`<button class="audio" onclick="new Audio('${audio}').play()">🔊 Listen</button>`:""}</div>${blocks}<div class="notice">Lexora uses an open dictionary service for live definitions. Results may vary by word and service availability.</div>`;
 box.classList.add("show");empty.style.display="none";state.searched++;touchStreak();save();
-}catch(err){box.classList.remove("show");empty.style.display="block";empty.textContent="We couldn't find that word. Try another English word.";}}
+}catch(err){
+box.classList.remove("show");empty.style.display="block";
+empty.innerHTML=`<strong>We couldn't load the live dictionary.</strong><br><span style="display:block;margin-top:6px">Please check your internet connection and try again.</span><button class="primary" style="margin-top:14px" onclick="searchWord()">Try again</button>`;
+}finally{clearTimeout(timer);}}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
 function touchStreak(){let today=new Date().toISOString().slice(0,10);if(state.lastDay!==today){let prev=new Date(Date.now()-86400000).toISOString().slice(0,10);state.streak=state.lastDay===prev?state.streak+1:1;state.lastDay=today}}
 
