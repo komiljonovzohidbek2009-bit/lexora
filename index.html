@@ -195,7 +195,18 @@ function renderLocalWord(word,data){
 let box=document.getElementById("dictResult"),empty=document.getElementById("dictEmpty");
 let chips=(data.synonyms||[]).map(s=>`<span class="chip">${escapeHtml(s)}</span>`).join("");
 let listen=`<button class="audio" onclick='speakWord(${JSON.stringify(word)})'>🔊 Listen</button>`;
-box.innerHTML=`<div class="resulttop"><div><h2>${escapeHtml(word)}</h2><div class="phonetic">${escapeHtml(data.phon||"Pronunciation unavailable")}</div></div>${listen}</div><div class="meaningblock"><h3>${escapeHtml(data.pos||"Meaning")}</h3><div class="uzbek"><strong>🇺🇿 Uzbek meaning:</strong> ${escapeHtml(data.uzbek||"Tarjimasi mavjud emas")}</div><ol><li>${escapeHtml(data.meaning)}<div class="example">“${escapeHtml(data.example)}”</div></li></ol>${chips?`<div class="chips">${chips}</div>`:""}</div><div class="notice">Lexora dictionary result</div>`;
+let posBlocks="";
+if(Array.isArray(data.parts)){
+posBlocks=data.parts.map(part=>`
+<div class="meaningblock">
+<h3>${escapeHtml(part.pos||"Meaning")}</h3>
+<div class="uzbek"><strong>🇺🇿 Uzbek meaning:</strong> ${escapeHtml(part.uzbek||"Tarjimasi mavjud emas")}</div>
+<ol><li>${escapeHtml(part.meaning||"")}${part.example?`<div class="example">“${escapeHtml(part.example)}”</div>`:""}</li></ol>
+</div>`).join("");
+}else{
+posBlocks=`<div class="meaningblock"><h3>${escapeHtml(data.pos||"Meaning")}</h3><div class="uzbek"><strong>🇺🇿 Uzbek meaning:</strong> ${escapeHtml(data.uzbek||"Tarjimasi mavjud emas")}</div><ol><li>${escapeHtml(data.meaning||"")}${data.example?`<div class="example">“${escapeHtml(data.example)}”</div>`:""}</li></ol></div>`;
+}
+box.innerHTML=`<div class="resulttop"><div><h2>${escapeHtml(word)}</h2><div class="phonetic">${escapeHtml(data.phon||"Pronunciation unavailable")}</div></div>${listen}</div>${posBlocks}${chips?`<div class="chips">${chips}</div>`:""}<div class="notice">Lexora dictionary result</div>`;
 box.classList.add("show");empty.style.display="none";state.searched++;touchStreak();save();
 }
 async function searchWord(){
@@ -260,14 +271,55 @@ try{
   // so browser speech is used by the Listen button.
   let phonText="Pronunciation available with Listen";
 
-  let blocks=parts.slice(0,6).map(m=>`
+  /*
+   * Translate one useful English definition to Uzbek for each part of speech.
+   * Results are cached locally so repeated searches are fast and use fewer requests.
+   */
+  function decodeHtmlEntities(text){
+    const t=document.createElement("textarea");
+    t.innerHTML=String(text||"");
+    return t.value;
+  }
+
+  async function translateToUzbek(text){
+    const clean=decodeHtmlEntities(String(text||"").replace(/<[^>]*>/g,"").trim());
+    if(!clean)return "";
+    let cache={};
+    try{cache=JSON.parse(localStorage.getItem("lexoraUzbekCache")||"{}");}catch(_){}
+    if(cache[clean])return decodeHtmlEntities(cache[clean]);
+
+    try{
+      const trUrl="https://api.mymemory.translated.net/get?q="+encodeURIComponent(clean)+"&langpair=en|uz";
+      const tr=await fetch(trUrl);
+      if(tr.ok){
+        const td=await tr.json();
+        let translated=decodeHtmlEntities(td?.responseData?.translatedText||"").trim();
+        translated=translated.replace(/\s+/g," ");
+        if(translated && translated.toLowerCase()!==clean.toLowerCase()){
+          cache[clean]=translated;
+          try{localStorage.setItem("lexoraUzbekCache",JSON.stringify(cache));}catch(_){}
+          return translated;
+        }
+      }
+    }catch(_){}
+    return "";
+  }
+
+  const shownParts=parts.slice(0,6);
+  // Translate the headword itself rather than a long dictionary definition.
+  // This produces much cleaner Uzbek meanings (for example, "indispensable" → "zarur").
+  const wordUzbek=await translateToUzbek(word);
+  const translatedParts=shownParts.map(m=>({m,uzbek:wordUzbek}));
+
+  let blocks=translatedParts.map(({m,uzbek})=>`
     <div class="meaningblock">
       <h3>${escapeHtml(m.pos)}</h3>
+      ${uzbek?`<div class="uzbek"><strong>🇺🇿 Uzbek meaning:</strong> ${escapeHtml(uzbek)}</div>`:`<div class="uzbek"><strong>🇺🇿 Uzbek meaning:</strong> Translation unavailable</div>`}
       <ol>
         ${m.senses.map(s=>`
           <li>
-            ${escapeHtml(String(s.sense).replace(/<[^>]*>/g,""))}
-            ${s.examples&&s.examples[0]?`<div class="example">“${escapeHtml(String(s.examples[0]).replace(/<[^>]*>/g,""))}”</div>`:""}
+            ${escapeHtml(decodeHtmlEntities(String(s.sense).replace(/<[^>]*>/g,"")))}
+            ${s.examples&&s.examples[0]?`<div class="example">“${escapeHtml(decodeHtmlEntities(String(s.examples[0]).replace(/<[^>]*>/g,"")))}”</div>`:""}
           </li>`).join("")}
       </ol>
     </div>`).join("");
@@ -284,8 +336,7 @@ try{
     </div>
     ${blocks}
     ${examples.length?`<div class="notice">Example included from Open Dictionary</div>`:""}
-    <div class="notice">Dictionary data: Wiktionary via Open Dictionary</div>`;
-
+    <div class="notice">Dictionary data: Wiktionary via Open Dictionary · Uzbek translations powered by MyMemory</div>`;
   box.classList.add("show");
   empty.style.display="none";
   state.searched++;
